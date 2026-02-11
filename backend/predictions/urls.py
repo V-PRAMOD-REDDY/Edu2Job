@@ -1,12 +1,13 @@
-# backend/predictions/urls.py
-
 from django.urls import path
 from .views import (
     TrainingDataListView,
     upload_training_csv,
     retrain_model,
-    PredictJobView,            # New Class-Based View
-    UserPredictionHistoryView  # New Class-Based View
+    PredictJobView,
+    UserPredictionHistoryView,
+    # New Views
+    GroupListCreateView,
+    MessageListCreateView
 )
 
 urlpatterns = [
@@ -15,8 +16,11 @@ urlpatterns = [
     path('upload-csv/', upload_training_csv, name='upload-training-csv'),
     path('retrain/', retrain_model, name='retrain-model'),
 
-    # --- Student URLs ---
-    # We use .as_view() because these are now Class-Based Views
+    # --- Student Prediction URLs ---
     path('predict/', PredictJobView.as_view(), name='predict-job'),
     path('my-predictions/', UserPredictionHistoryView.as_view(), name='my-predictions'),
+
+    # --- NEW CHAT URLs ---
+    path('groups/', GroupListCreateView.as_view(), name='groups-list-create'),
+    path('messages/', MessageListCreateView.as_view(), name='messages-list-create'),
 ]

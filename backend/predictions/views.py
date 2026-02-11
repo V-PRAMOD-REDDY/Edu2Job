@@ -1,13 +1,19 @@
-# backend/predictions/views.py
-
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
-from .models import TrainingData, JobPrediction
-from .serializers import TrainingDataSerializer, CSVUploadSerializer, JobPredictionSerializer
+
+# --- UPDATED IMPORTS (Included StudyGroup, GroupMessage & New Serializers) ---
+from .models import TrainingData, JobPrediction, StudyGroup, GroupMessage
+from .serializers import (
+    TrainingDataSerializer, 
+    CSVUploadSerializer, 
+    JobPredictionSerializer,
+    StudyGroupSerializer,      # New
+    GroupMessageSerializer     # New
+)
 
 # --- MODULE 2 INTEGRATION ---
 from .preprocessing import EducationPreprocessor
@@ -34,31 +40,51 @@ class TrainingDataListView(generics.ListAPIView):
 @permission_classes([IsAdminUser])
 @parser_classes([MultiPartParser, FormParser])
 def upload_training_csv(request):
+    """
+    Robust CSV Upload:
+    - FIX: Handles commas inside quotes (e.g., "Python, Java") using skipinitialspace.
+    """
     serializer = CSVUploadSerializer(data=request.data)
     if serializer.is_valid():
         file = request.FILES['file']
         try:
-            df = pd.read_csv(file)
+            # FIX: skipinitialspace=True handles ' "Python' correctly
+            df = pd.read_csv(file, skipinitialspace=True, on_bad_lines='skip')
             
-            # Validation
-            required = ['degree', 'branch', 'cgpa', 'skills', 'job_role']
-            if not all(col in df.columns for col in required):
-                return Response({"error": f"Missing columns. Required: {required}"}, status=400)
+            # 1. Clean Column Names
+            df.columns = [c.strip().lower() for c in df.columns]
 
-            # Bulk Create
+            # 2. Check Missing Columns
+            required = ['degree', 'branch', 'cgpa', 'skills', 'job_role']
+            missing = [col for col in required if col not in df.columns]
+            
+            if missing:
+                return Response({
+                    "error": f"Missing required columns: {', '.join(missing)}"
+                }, status=400)
+
+            # 3. Handle Extra Columns
+            df = df[required]
+
+            # 4. Bulk Create
             objs = [
                 TrainingData(
-                    degree=row['degree'], branch=row['branch'],
-                    cgpa=row['cgpa'], skills=row['skills'],
-                    job_role=row['job_role'], source='bulk_upload'
+                    degree=row['degree'],
+                    branch=row['branch'],
+                    cgpa=row['cgpa'],
+                    skills=row['skills'],
+                    job_role=row['job_role'],
+                    source='bulk_upload'
                 )
                 for _, row in df.iterrows()
             ]
             TrainingData.objects.bulk_create(objs)
-            return Response({"message": f"Added {len(objs)} records successfully!"})
+            
+            return Response({"message": f"Successfully added {len(objs)} records!"})
             
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": f"Error processing file: {str(e)}"}, status=500)
+            
     return Response(serializer.errors, status=400)
 
 @api_view(['POST'])
@@ -80,13 +106,15 @@ def retrain_model(request):
         vectorizer = TfidfVectorizer(max_features=50)
         skills_vec = vectorizer.fit_transform(df['skills']).toarray()
         
+        # Combine Features
         X = np.hstack((df[['degree_enc', 'branch_enc', 'cgpa']].values, skills_vec))
         y = df['job_role']
         
+        # Train Random Forest
         clf = RandomForestClassifier(n_estimators=100)
         clf.fit(X, y)
         
-        # --- SAVE MODELS (Naming must match Preprocessor) ---
+        # --- SAVE MODELS ---
         MODEL_DIR = os.path.join(settings.BASE_DIR, 'ml_models')
         os.makedirs(MODEL_DIR, exist_ok=True)
         
@@ -114,7 +142,6 @@ class PredictJobView(APIView):
         model_path = os.path.join(settings.BASE_DIR, 'ml_models', 'career_model.pkl')
         try:
             self.model = joblib.load(model_path)
-            # Initialize Module 2: Preprocessor
             self.preprocessor = EducationPreprocessor()
         except Exception as e:
             print("Model Load Error:", e)
@@ -127,43 +154,34 @@ class PredictJobView(APIView):
         data = request.data
         user = request.user
 
-        # --- MODULE 2: DATA VALIDATION ---
+        # Validation
         is_valid, message = self.preprocessor.validate_input(data)
         if not is_valid:
             return Response({"error": message}, status=400)
 
         try:
-            # --- MODULE 2: ENCODING & NORMALIZATION ---
+            # Preprocessing
             final_features = self.preprocessor.preprocess(data)
 
-            # --- MODULE 3: PREDICTION (UPDATED FOR TOP 3) ---
-            
-            # 1. Get probabilities for ALL classes (Jobs)
+            # Prediction
             probabilities = self.model.predict_proba(final_features)[0]
-            
-            # 2. Get indices of the top 3 scores (sorted descending)
-            # argsort sorts ascending, so we take the last 3 and reverse them
             top3_indices = np.argsort(probabilities)[-3:][::-1]
-            
-            # 3. Get Class Names (Job Roles)
             classes = self.model.classes_
             
             top_matches = []
             for index in top3_indices:
                 role = classes[index]
                 score = probabilities[index] * 100
-                if score > 0: # Only include valid predictions
+                if score > 0:
                     top_matches.append({"role": role, "score": round(score, 2)})
 
-            # If no matches found (rare), handle gracefully
             if not top_matches:
                  return Response({"error": "Could not determine a suitable role."}, status=400)
 
-            # The Winner (Top 1)
             best_match = top_matches[0]['role']
             best_score = top_matches[0]['score']
 
-            # Save to Database (We save the Best Match)
+            # Save History
             JobPrediction.objects.create(
                 user=user,
                 highest_degree=data.get('highest_degree'),
@@ -174,11 +192,10 @@ class PredictJobView(APIView):
                 confidence_score=best_score
             )
 
-            # Return Top 1 + Alternatives
             return Response({
                 "predicted_role": best_match,
                 "confidence_score": best_score,
-                "alternatives": top_matches[1:] # Sends 2nd and 3rd best as alternatives
+                "alternatives": top_matches[1:]
             }, status=200)
 
         except Exception as e:
@@ -191,3 +208,39 @@ class UserPredictionHistoryView(generics.ListAPIView):
 
     def get_queryset(self):
         return JobPrediction.objects.filter(user=self.request.user).order_by('-created_at')
+
+# ==========================================
+# 3. CHAT & GROUPS VIEWS (NEWLY ADDED)
+# ==========================================
+
+class GroupListCreateView(generics.ListCreateAPIView):
+    """
+    GET: Returns list of all study groups.
+    POST: Creates a new study group.
+    """
+    queryset = StudyGroup.objects.all().order_by('-created_at')
+    serializer_class = StudyGroupSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # Automatically set the creator as the logged-in user
+        serializer.save(created_by=self.request.user)
+
+class MessageListCreateView(generics.ListCreateAPIView):
+    """
+    GET: Returns messages for a specific group (?group_id=1).
+    POST: Sends a message to a specific group.
+    """
+    serializer_class = GroupMessageSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Filter messages by Group ID passed in URL
+        group_id = self.request.query_params.get('group_id')
+        if group_id:
+            return GroupMessage.objects.filter(group_id=group_id).order_by('created_at')
+        return GroupMessage.objects.none()
+
+    def perform_create(self, serializer):
+        # Automatically set the sender as the logged-in user
+        serializer.save(user=self.request.user)
