@@ -1,8 +1,9 @@
 // src/api.ts
 import axios from "axios";
 
+// పాత Localhost తీసేసి, కొత్త Render లింక్ పెట్టండి:
 const api = axios.create({
-  baseURL: "http://localhost:8000/api",
+  baseURL: "https://edu2jobs-backend.onrender.com/api",
 });
 
 api.interceptors.request.use((config) => {
