@@ -7,17 +7,72 @@ import {
 } from 'recharts';
 import { Loader2, TrendingUp, PieChart as PieIcon } from "lucide-react";
 
-const COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#8b5cf6'];
+const COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#8b5cf6', '#ec4899', '#06b6d4'];
 
 const AdminAnalyticsPage: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // --- DATA CLEANING FUNCTION (Fixes the "count" & "btech/B.Tech" issue) ---
+  const processData = (rawData: any) => {
+    if (!rawData) return null;
+
+    // 1. Clean Degree Distribution
+    const degreeMap: Record<string, number> = {};
+
+    rawData.degree_distribution.forEach((item: any) => {
+       let name = item.highest_degree ? String(item.highest_degree).trim() : "Unknown";
+       const count = parseInt(item.count) || 0;
+
+       // Filter out CSV Headers (Junk Data)
+       if (["degree", "count", "highest_degree", "branch"].includes(name.toLowerCase())) return;
+
+       // Normalize Names (Merge 'btech', 'B.Tech', 'b tech')
+       const lowerName = name.toLowerCase().replace(/[\.\s]/g, ''); // remove dots & spaces
+       
+       if (lowerName.includes('btech')) name = "B.Tech";
+       else if (lowerName.includes('mtech')) name = "M.Tech";
+       else if (lowerName.includes('bsc')) name = "B.Sc";
+       else if (lowerName.includes('msc')) name = "M.Sc";
+       else if (lowerName.includes('bcom')) name = "B.Com";
+       else if (lowerName.includes('mba')) name = "MBA";
+       else if (lowerName.includes('bba')) name = "BBA";
+       else if (lowerName.includes('mca')) name = "MCA";
+       
+       // Aggregate Counts
+       if (degreeMap[name]) {
+          degreeMap[name] += count;
+       } else {
+          degreeMap[name] = count;
+       }
+    });
+
+    // Convert back to Array for Recharts
+    const cleanedDegrees = Object.keys(degreeMap).map(key => ({
+       highest_degree: key,
+       count: degreeMap[key]
+    }));
+
+    // 2. Clean Role Demand (Filter junk roles)
+    const cleanedRoles = rawData.role_demand.filter((item: any) => {
+        const role = item.predicted_role?.toLowerCase() || "";
+        return role !== "job_role" && role !== "role" && role !== "predicted_role";
+    });
+
+    return {
+       ...rawData,
+       degree_distribution: cleanedDegrees,
+       role_demand: cleanedRoles
+    };
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await api.get("/adminpanel/analytics-data/");
-        setData(res.data);
+        const res = await api.get("/adminpanel/analytics-data/"); // Ensure this URL matches your backend
+        // Apply cleaning logic before setting state
+        const cleanData = processData(res.data);
+        setData(cleanData);
       } catch (err) {
         console.error("Failed to load analytics", err);
       } finally {
@@ -44,7 +99,7 @@ const AdminAnalyticsPage: React.FC = () => {
         <div style={{marginBottom: '2rem'}}>
           <h2 style={{ margin: 0, color: '#1f2937' }}>System Analytics</h2>
           <p style={{ margin: '5px 0 0 0', color: '#6b7280' }}>
-            Data Source: <span style={{fontWeight: 600, color: '#4f46e5'}}>{data?.source}</span>
+            Data Source: <span style={{fontWeight: 600, color: '#4f46e5'}}>{data?.source || "Database"}</span>
           </p>
         </div>
 
@@ -59,9 +114,19 @@ const AdminAnalyticsPage: React.FC = () => {
               <ResponsiveContainer>
                 <BarChart data={data?.role_demand}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                  <XAxis dataKey="predicted_role" style={{ fontSize: '0.75rem' }} interval={0} angle={-15} textAnchor="end" height={60} />
+                  <XAxis 
+                    dataKey="predicted_role" 
+                    style={{ fontSize: '0.75rem' }} 
+                    interval={0} 
+                    angle={-20} 
+                    textAnchor="end" 
+                    height={70} 
+                  />
                   <YAxis style={{ fontSize: '0.8rem' }} allowDecimals={false} />
-                  <Tooltip cursor={{ fill: '#f9fafb' }} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} />
+                  <Tooltip 
+                    cursor={{ fill: '#f9fafb' }} 
+                    contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} 
+                  />
                   <Bar dataKey="count" fill="#4f46e5" name="Count" radius={[4, 4, 0, 0]} barSize={40} />
                 </BarChart>
               </ResponsiveContainer>

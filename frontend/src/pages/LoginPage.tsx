@@ -15,7 +15,7 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Helper: Handle Redirect based on Role
+  // Handle Redirect based on Role
   const handleRedirect = (userData: any) => {
     // Check role safely
     const role = userData.role || 'USER'; 
@@ -30,7 +30,7 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  // 🟢 FIXED LOGIN LOGIC
+  // LOGIN LOGIC
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -44,7 +44,7 @@ const LoginPage: React.FC = () => {
       localStorage.setItem("access", res.data.access);
       localStorage.setItem("refresh", res.data.refresh);
 
-      // 3. 🔥 FETCH USER DETAILS MANUALLY (The Fix)
+      // 3.  FETCH USER DETAILS MANUALLY 
       // Login response lo user lekapothe, /auth/me nundi techukovali
       let user = res.data.user;
       

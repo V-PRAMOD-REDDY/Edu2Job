@@ -9,9 +9,9 @@
 
 .profile-content-wrapper {
   display: grid;
-  grid-template-columns: 2.5fr 1fr; /* Form takes 70%, Sidebar 30% */
+  grid-template-columns: 2.5fr 1fr; 
   gap: 2rem;
-  margin-top: -60px; /* Overlap with banner */
+  margin-top: -60px; 
   padding: 0 1rem;
 }
 

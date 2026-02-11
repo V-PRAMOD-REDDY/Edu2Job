@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useRef } from "react";
+import { Link, useLocation } from "react-router-dom"; 
 import api from "../api";
 import { useAuth } from "../auth/useAuth";
 import { 
   User, Save, Loader2, Github, Linkedin, Camera, Sparkles, 
   AlertCircle, CheckCircle2, Building2, BookOpen, FileText, 
-  Briefcase, AlertTriangle, Award, Image as ImageIcon 
-} from "lucide-react";
+  Briefcase, AlertTriangle, Award, Image as ImageIcon, X, 
+  LayoutDashboard, BrainCircuit, BarChart3, ArrowLeft 
+} from "lucide-react"; 
 import "../styles/ProfilePage.css"; 
 import DashboardLayout from "../components/DashboardLayout";
 
@@ -47,6 +49,7 @@ const emptyProfile: Profile = {
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
+  const location = useLocation(); 
   const [profile, setProfile] = useState<Profile>(emptyProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,7 +75,6 @@ const ProfilePage: React.FC = () => {
         const res = await api.get("/profile/me/");
         const data = res.data;
 
-        // "Other" Logic Check
         let collegeVal = data.college || "";
         if (collegeVal && !TOP_COLLEGES.includes(collegeVal) && collegeVal !== "Other") {
           setIsOtherCollege(true);
@@ -117,20 +119,9 @@ const ProfilePage: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
-    if (name === "college") {
-      setIsOtherCollege(value === "Other");
-      if (value !== "Other") setManualCollege("");
-    }
-    if (name === "highest_degree") {
-      setIsOtherDegree(value === "Other");
-      if (value !== "Other") setManualDegree("");
-    }
-    if (name === "branch") {
-      setIsOtherBranch(value === "Other");
-      if (value !== "Other") setManualBranch("");
-    }
-
+    if (name === "college") { setIsOtherCollege(value === "Other"); if (value !== "Other") setManualCollege(""); }
+    if (name === "highest_degree") { setIsOtherDegree(value === "Other"); if (value !== "Other") setManualDegree(""); }
+    if (name === "branch") { setIsOtherBranch(value === "Other"); if (value !== "Other") setManualBranch(""); }
     setProfile((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -150,6 +141,12 @@ const ProfilePage: React.FC = () => {
     }
   };
 
+  const handleDeleteTag = (field: keyof Profile, tagToDelete: string) => {
+    const currentTags = (profile[field] as string).split(',').map(s => s.trim()).filter(Boolean);
+    const newTags = currentTags.filter(t => t !== tagToDelete).join(', ');
+    setProfile(prev => ({ ...prev, [field]: newTags }));
+  };
+
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -164,7 +161,12 @@ const ProfilePage: React.FC = () => {
     return (
       <div className="tags-container">
         {str.split(',').map(s => s.trim()).filter(Boolean).map((tag, i) => (
-          <span key={i} className="tag-chip">{tag}</span>
+          <span key={i} className="tag-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            {tag}
+            <button type="button" onClick={() => handleDeleteTag(field, tag)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: '#6b7280'}}>
+              <X size={14} className="hover:text-red-500" />
+            </button>
+          </span>
         ))}
       </div>
     );
@@ -174,40 +176,164 @@ const ProfilePage: React.FC = () => {
     e.preventDefault();
     setMsg(null);
     setSaving(true);
-    
     const dataToSend = {
       ...profile,
       college: isOtherCollege ? manualCollege : profile.college,
       highest_degree: isOtherDegree ? manualDegree : profile.highest_degree,
       branch: isOtherBranch ? manualBranch : profile.branch,
     };
-
     try {
       await api.put("/profile/me/", dataToSend);
       setMsg({ type: 'success', text: "Success! Profile updated successfully." });
     } catch (err) {
-      console.error(err);
       setMsg({ type: 'error', text: "Failed to update profile. Please try again." });
     } finally {
       setSaving(false);
     }
   };
 
-  const progress = Object.values(profile).filter(v => v && v.toString().length > 0).length / 14 * 100;
+  const rawProgress = Object.values(profile).filter(v => v && v.toString().length > 0).length / 14 * 100;
+  const progress = Math.min(Math.round(rawProgress), 100);
 
   if (loading) return <div style={{display:'flex', justifyContent:'center', paddingTop: 100}}><Loader2 className="animate-spin" /></div>;
 
   return (
     <DashboardLayout>
-      <div className="profile-page-container" style={{background: 'transparent', paddingBottom: 50}}>
+      {/* --- FIXED CSS FOR STICKY NAV --- */}
+      <style>{`
+        /* Default: Hide mobile navs on desktop */
+        .mobile-bottom-nav, .mobile-top-nav {
+          display: none !important;
+        }
+
+        @media (max-width: 768px) {
+          /* 1. FORCE SHOW MOBILE NAVS */
+          .mobile-bottom-nav, .mobile-top-nav {
+            display: flex !important;
+          }
+
+          /* 2. TOP NAV (Sticky Header) */
+          .mobile-top-nav {
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            position: sticky;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 500;
+            border-bottom: 1px solid #f3f4f6;
+          }
+
+          /* 3. BOTTOM NAV (FIXED FOOTER - THE FIX) */
+          .mobile-bottom-nav {
+            justify-content: space-around;
+            align-items: center;
+            background: #ffffff;
+            
+            /* KEY FIX: Use fixed positioning relative to viewport */
+            position: fixed !important; 
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            
+            width: 100%;
+            height: 65px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+            border-top: 1px solid #f3f4f6;
+            
+            /* Highest Z-Index ensures it floats above everything */
+            z-index: 2147483647 !important; 
+            
+            padding-bottom: env(safe-area-inset-bottom, 10px);
+          }
+
+          .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 0.7rem;
+            color: #9ca3af;
+            text-decoration: none;
+            gap: 4px;
+            padding: 8px;
+            flex: 1; /* Distribute space evenly */
+          }
+
+          .nav-item.active {
+            color: #4f46e5;
+            font-weight: 600;
+          }
+
+          /* 4. LAYOUT ADJUSTMENTS - Prevent content hiding behind nav */
+          .profile-page-container {
+             padding-bottom: 100px !important; /* Extra space for bottom nav */
+             overflow-x: hidden;
+          }
+
+          .profile-content-wrapper {
+            flex-direction: column; 
+            padding: 0 1rem;
+          }
+          
+          .profile-main-col { width: 100%; margin-right: 0; }
+          .profile-sidebar { width: 100%; margin-top: 1.5rem; position: static; }
+          
+          .form-grid-2 { grid-template-columns: 1fr !important; gap: 1rem; }
+          
+          .user-avatar-row {
+            flex-direction: column;
+            text-align: center;
+            margin-top: -40px;
+          }
+          .avatar-wrapper { margin-right: 0; margin-bottom: 10px; }
+          .user-title-box { align-items: center; }
+          .badge-row { justify-content: center; }
+          .input-group.full-width { grid-column: span 1; }
+        }
+      `}</style>
+
+      <div className="profile-page-container" style={{background: 'transparent'}}>
         
+        {/* --- MOBILE TOP NAV --- */}
+        <div className="mobile-top-nav">
+          <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: '#374151', fontWeight: 600 }}>
+            <ArrowLeft size={20} /> Dashboard
+          </Link>
+          <div style={{fontSize: '0.9rem', color: '#6b7280'}}>Edit Profile</div>
+        </div>
+
+        {/* --- MOBILE BOTTOM NAV (FIXED) --- */}
+        <div className="mobile-bottom-nav">
+          <Link to="/dashboard" className={`nav-item ${location.pathname === '/dashboard' ? 'active' : ''}`}>
+            <LayoutDashboard size={20} />
+            <span>Home</span>
+          </Link>
+          <Link to="/predict" className={`nav-item ${location.pathname === '/predict' ? 'active' : ''}`}>
+            <BrainCircuit size={20} />
+            <span>Predict</span>
+          </Link>
+          <Link to="/analytics" className={`nav-item ${location.pathname === '/analytics' ? 'active' : ''}`}>
+            <BarChart3 size={20} />
+            <span>Stats</span>
+          </Link>
+          <Link to="/profile" className={`nav-item active`}>
+            <User size={20} />
+            <span>Profile</span>
+          </Link>
+        </div>
+
         {/* BANNER */}
         <div 
           className="profile-header-bg" 
           style={{
             backgroundImage: bannerPreview ? `url(${bannerPreview})` : 'linear-gradient(120deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)',
             backgroundSize: 'cover',
-            backgroundPosition: 'center'
+            backgroundPosition: 'center',
+            position: 'relative', 
+            zIndex: 1
           }}
         >
           <button className="edit-banner-btn" onClick={() => bannerInputRef.current?.click()}>
@@ -216,14 +342,13 @@ const ProfilePage: React.FC = () => {
           <input type="file" ref={bannerInputRef} hidden accept="image/*" onChange={handleBannerUpload} />
         </div>
 
-        <div className="profile-content-wrapper">
+        <div className="profile-content-wrapper" style={{ position: 'relative', zIndex: 10 }}> 
           
           {/* MAIN FORM */}
           <div className="profile-main-col">
             <form onSubmit={handleSubmit} className="profile-card animate-fade-in">
               
-              {/* AVATAR & TITLE */}
-              <div className="user-avatar-row">
+              <div className="user-avatar-row" style={{ position: 'relative', zIndex: 20 }}>
                 <div className="avatar-wrapper" onClick={() => fileInputRef.current?.click()}>
                   <div className="avatar-box" style={{background: '#f3e8ff', color:'#7c3aed', fontSize:'2.5rem'}}>
                     {profile.username?.charAt(0).toUpperCase() || "U"}
@@ -240,7 +365,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* MESSAGE BOX */}
               {msg && (
                 <div className={`msg-box ${msg.type}`}>
                   {msg.type === 'success' ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}
@@ -248,7 +372,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               )}
 
-              {/* --- 0. PERSONAL INFORMATION (ADDED) --- */}
               <div className="form-section">
                 <div className="section-header">
                   <User size={20} className="text-purple-600"/><span>Personal Information</span>
@@ -274,7 +397,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 1. EDUCATION DETAILS */}
               <div className="form-section">
                 <div className="section-header">
                   <Building2 size={20} className="text-purple-600"/><span>Education Details</span>
@@ -324,7 +446,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 2. ACADEMIC SCORE */}
               <div className="form-section">
                  <div className="section-header"><BookOpen size={20} className="text-purple-600"/><span>Academic Score</span></div>
                 <div className="input-group">
@@ -352,7 +473,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3. SKILLS */}
               <div className="form-section">
                 <div className="section-header"><Award size={20} className="text-purple-600"/><span>Skills & Achievements</span></div>
                 <div className="input-group">
@@ -365,7 +485,6 @@ const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 4. CAREER & SOCIALS */}
               <div className="form-section">
                 <div className="section-header"><Briefcase size={20} className="text-purple-600"/><span>Career & Socials</span></div>
                 <div className="form-grid-2">
@@ -421,9 +540,9 @@ const ProfilePage: React.FC = () => {
               <div className="circle-progress">
                  <svg viewBox="0 0 36 36" className="circular-chart">
                   <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                  <path className="circle" strokeDasharray={`${Math.min(progress, 100)}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path className="circle" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                 </svg>
-                <div className="percentage">{Math.round(progress)}%</div>
+                <div className="percentage">{progress}%</div>
               </div>
               <p className="strength-text">Complete your profile to get better AI recommendations.</p>
             </div>
